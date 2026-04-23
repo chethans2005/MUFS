@@ -1,0 +1,63 @@
+#include "unionfs_whiteout.h"
+
+#include "unionfs_cow.h"
+#include "unionfs_state.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <libgen.h>
+#include <limits.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
+void wh_path(char *buf, size_t sz, const char *dir, const char *rel)
+{
+    char tmp[PATH_MAX];
+    snprintf(tmp, sizeof(tmp), "%s", rel);
+
+    char *dname = dirname(tmp);
+    char tmp2[PATH_MAX];
+    snprintf(tmp2, sizeof(tmp2), "%s", rel);
+    char *bname = basename(tmp2);
+
+    if (strcmp(dname, "/") == 0 || strcmp(dname, ".") == 0)
+        snprintf(buf, sz, "%s/" WH_PREFIX "%s", dir, bname);
+    else
+        snprintf(buf, sz, "%s%s/" WH_PREFIX "%s", dir, dname, bname);
+}
+
+int is_whiteout(const char *rel)
+{
+    char wh[PATH_MAX];
+    wh_path(wh, sizeof(wh), STATE->upper_dir, rel);
+    return (access(wh, F_OK) == 0);
+}
+
+int create_whiteout(const char *rel)
+{
+    char wh[PATH_MAX];
+    wh_path(wh, sizeof(wh), STATE->upper_dir, rel);
+
+    char tmp[PATH_MAX];
+    snprintf(tmp, sizeof(tmp), "%s", wh);
+    char *dname = dirname(tmp);
+    int mk = unionfs_mkdir_parents(dname);
+    if (mk < 0)
+        return mk;
+    if (mkdir(dname, 0755) != 0 && errno != EEXIST)
+        return -errno;
+
+    int fd = open(wh, O_CREAT | O_WRONLY, 0000);
+    if (fd < 0)
+        return -errno;
+    close(fd);
+    return 0;
+}
+
+void remove_whiteout(const char *rel)
+{
+    char wh[PATH_MAX];
+    wh_path(wh, sizeof(wh), STATE->upper_dir, rel);
+    unlink(wh);
+}
